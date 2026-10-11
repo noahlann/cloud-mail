@@ -1,5 +1,6 @@
 import settingService from '../service/setting-service';
 import emailUtils from '../utils/email-utils';
+import { ensureMailHeaderSchema } from '../lib/mail-header-schema';
 import {emailConst} from "../const/entity-const";
 
 const dbInit = {
@@ -32,6 +33,7 @@ const dbInit = {
 		await this.v3_1DB(c);
 		await this.v3_2DB(c);
 		await this.v3_3DB(c);
+		await ensureMailHeaderSchema(c.env.db);
 		await settingService.refresh(c);
 		return c.text('success');
 	},

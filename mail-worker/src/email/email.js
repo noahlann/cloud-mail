@@ -12,6 +12,7 @@ import userService from '../service/user-service';
 import telegramService from '../service/telegram-service';
 import aiService from '../service/ai-service';
 import webhookService from '../service/webhook-service';
+import { mailHeaderFields } from '../lib/mail-headers';
 
 export async function email(message, env, ctx) {
 
@@ -43,15 +44,8 @@ export async function email(message, env, ctx) {
 			return;
 		}
 
-		const reader = message.raw.getReader();
-		let content = '';
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			content += new TextDecoder().decode(value);
-		}
-
+		// Parse original bytes once; decoding each stream chunk corrupts split UTF-8.
+		const content = await new Response(message.raw).arrayBuffer();
 		const email = await PostalMime.parse(content);
 
 
@@ -107,6 +101,7 @@ export async function email(message, env, ctx) {
 		const code = await aiService.extractCode({ env }, email, { aiCode, aiCodeFilter });
 
 		const params = {
+			...mailHeaderFields(email, content, message.from),
 			toEmail: message.to,
 			toName: toName,
 			sendEmail: email.from.address,

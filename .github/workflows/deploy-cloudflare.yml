@@ -6,7 +6,15 @@ on:
     paths:
       - "mail-worker/**"
       - "mail-vue/**"
+      - ".github/workflows/deploy-cloudflare.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-mail-production
+  cancel-in-progress: false
 
 jobs:
   Deploy-cloud-mail:
@@ -53,6 +61,10 @@ jobs:
       - name: 📦 安装依赖 / Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ./mail-worker
+
+      - name: Test mail headers and database migration
+        working-directory: ./mail-worker
+        run: node --test src/lib/mail-headers.test.mjs src/lib/mail-header-schema.test.mjs scripts/migrate-mail-headers.test.mjs
 
       - name: 📡 禁用 Wrangler 遥测 / Disable wrangler telemetry
         working-directory: ./mail-worker
@@ -206,18 +218,22 @@ jobs:
           sed -i "s|\${D1_DATABASE_ID}|$D1_ID|g" "$CONFIG_FILE"
           echo "✅ Setup completed."
 
+      - name: Migrate mail header columns before deployment
+        working-directory: ./mail-worker
+        run: node scripts/migrate-mail-headers.mjs wrangler-action.toml
+
       - name: 🚀 开始部署 / Start deployment
         id: deploy
         working-directory: ./mail-worker
         run: |
           echo "🚀 Starting deployment..."
+          set +e
           pnpm wrangler deploy -c wrangler-action.toml 2>&1 \
             | tee deploy.log \
             | grep -v "https://.*\.workers\.dev" \
-            | sed -E 's/env\.domain .*/env.domain (***)/' \
-            || true
-          
+            | sed -E 's/env\.domain .*/env.domain (***)/'
           DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
           if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
             exit 1
           fi
@@ -253,10 +269,3 @@ jobs:
             echo "❌ Failed. HTTP: $HTTP_CODE, Response: $RESPONSE_BODY"
             exit 1
           fi
-
-      - name: 🗑️ 删除运行记录 / Delete workflow runs
-        uses: GitRML/delete-workflow-runs@main
-        continue-on-error: true
-        with:
-          retain_days: '1'
-          keep_minimum_runs: '0'
